@@ -441,6 +441,43 @@ namespace JsonFx.Json
 			}
 		}
 
+		internal object CoerceType(Type targetType, IDictionary newValues, object existingObject, out Dictionary<string, MemberInfo> memberMap)
+		{
+			// don't incurr the cost of member map for dictionaries
+			if (typeof(IDictionary).IsAssignableFrom(targetType) && existingObject is IDictionary)
+			{
+				memberMap = null;
+			}
+			else
+			{
+				memberMap = this.CreateMemberMap(targetType);
+			}
+
+			if (memberMap != null)
+			{
+				// copy any values into new object
+				foreach (object key in newValues.Keys)
+				{
+					MemberInfo memberInfo;
+					Type memberType = TypeCoercionUtility.GetMemberInfo(memberMap, key as String, out memberInfo);
+					this.SetMemberValue(existingObject, memberType, memberInfo, newValues[key]);
+				}
+			} else {
+				// set the values
+				IDictionary newValueDictionary = existingObject as IDictionary;
+
+				if (newValueDictionary == null) {
+					return existingObject;
+				}
+
+				foreach (object key in newValues.Keys)
+				{
+					newValueDictionary[key as string] = newValues[key];
+				}
+			}
+			return existingObject;
+		}
+
 		private object CoerceType(Type targetType, IDictionary value, out Dictionary<string, MemberInfo> memberMap)
 		{
 			object newValue = this.InstantiateObject(targetType, out memberMap);
