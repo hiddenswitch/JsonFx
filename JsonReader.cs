@@ -868,11 +868,6 @@ namespace JsonFx.Json
 					NumberStyles.Integer,
 					NumberFormatInfo.InvariantInfo);
 
-				if (expectedType != null)
-				{
-					return this.Settings.Coercion.CoerceType(expectedType, number);
-				}
-
 				if (number >= Int32.MinValue && number <= Int32.MaxValue)
 				{
 					// use most common
