@@ -913,8 +913,15 @@ namespace JsonFx.Json
 			}
 			try
 			{
-				foreach (object item in value)
+				var enumerator = TypeCoercionUtility.GetEnumerator(value);
+
+				if (enumerator == null) {
+					throw new JsonTypeCoercionException(string.Format("Requested to get an IEnumerator of a value that doesn't implement the IEnumerable interface.\nValue: {0}\nValue's type: {1}",value,value.GetType().FullName));
+				}
+
+				while (enumerator.MoveNext())
 				{
+					object item = enumerator.Current;
 					if (appendDelim)
 					{
 						this.WriteArrayItemDelim();
@@ -926,6 +933,11 @@ namespace JsonFx.Json
 
 					this.WriteLine();
 					this.WriteArrayItem(item);
+				}
+
+				IDisposable disposable = enumerator as IDisposable;
+				if (disposable != null) {
+					disposable.Dispose ();
 				}
 			}
 			finally
@@ -950,13 +962,58 @@ namespace JsonFx.Json
 			this.WriteDictionary((IEnumerable)value);
 		}
 
+		private static Dictionary<Type,MethodInfo> getEnumeratorMethods = new Dictionary<Type, MethodInfo>();
+		private static object[] emptyArgs = new object[] {};
 		protected virtual void WriteDictionary(IEnumerable value)
 		{
-			IDictionaryEnumerator enumerator = value.GetEnumerator() as IDictionaryEnumerator;
-			if (enumerator == null)
+			object candidateEnumerator = value.GetEnumerator();
+			
+			if (candidateEnumerator == null)
 			{
+				UnityEngine.Debug.LogError("IEnumerable has no GetEnumerator() result at all");
 				throw new JsonSerializationException(String.Format(JsonWriter.ErrorIDictionaryEnumerator, value.GetType()));
 			}
+
+			IDictionaryEnumerator enumerator = null;
+			
+			if (candidateEnumerator is System.String)
+			{
+				MethodInfo getEnumeratorMethodInfo = null;
+				if (getEnumeratorMethods.TryGetValue(value.GetType(), out getEnumeratorMethodInfo))
+				{
+					enumerator = getEnumeratorMethodInfo.Invoke(value, emptyArgs) as IDictionaryEnumerator;
+				}
+				else
+				{
+					UnityEngine.Debug.LogWarning("Doing AOT GetEnumerator workaround");
+					foreach(MethodInfo methodInfo in value.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public))
+					{
+						if (methodInfo.Name.Contains("GetEnumerator"))
+						{
+							UnityEngine.Debug.Log ("Invoking a method " + methodInfo.ReturnType + " " + methodInfo.Name);
+							try
+							{
+								enumerator = methodInfo.Invoke(value, new object[] {}) as IDictionaryEnumerator;
+							}
+							catch(Exception ex)
+							{
+								UnityEngine.Debug.LogWarning("Error invoking. " + ex);
+							}
+							if (enumerator != null)
+							{
+								UnityEngine.Debug.Log ("Success on AOT GetEnumerator workaround - got an enumerator with reflection");
+								getEnumeratorMethods[value.GetType()] = methodInfo;
+								break;
+							}
+						}
+					}
+				}
+			}
+			else
+				enumerator = candidateEnumerator as IDictionaryEnumerator;
+							
+			if (enumerator == null)
+				throw new JsonSerializationException(String.Format(JsonWriter.ErrorIDictionaryEnumerator, value.GetType()));
 
 			bool appendDelim = false;
 

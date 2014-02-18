@@ -597,9 +597,16 @@ namespace JsonFx.Json
 						null : parameters[0].ParameterType;
 				if (paramType != null)
 				{
-					// loop through adding items to collection
-					foreach (object item in value)
+					var enumerator = TypeCoercionUtility.GetEnumerator(value);
+
+					if (enumerator == null) {
+						throw new JsonTypeCoercionException(string.Format("Requested to get an IEnumerator of a value that doesn't implement the IEnumerable interface.\nValue: {0}\nValue's type: {1}",value,value.GetType().FullName));
+					}
+
+					while (enumerator.MoveNext())
 					{
+						// loop through adding items to collection
+						object item = enumerator.Current;
 						try
 						{
 							// always try-catch Invoke() to expose real exception
@@ -618,6 +625,12 @@ namespace JsonFx.Json
 							throw new JsonTypeCoercionException("Error calling Add on " + targetType.FullName, ex);
 						}
 					}
+
+					IDisposable disposable = enumerator as IDisposable;
+					if (disposable != null) {
+						disposable.Dispose ();
+					}
+
 					return collection;
 				}
 			}
@@ -637,9 +650,22 @@ namespace JsonFx.Json
 		{
 			ArrayList target = new ArrayList();
 
-			foreach (object item in value)
+
+			var enumerator = TypeCoercionUtility.GetEnumerator(value);
+
+			if (enumerator == null) {
+				throw new JsonTypeCoercionException(string.Format("Requested to get an IEnumerator of a value that doesn't implement the IEnumerable interface.\nValue: {0}\nValue's type: {1}",value,value.GetType().FullName));
+			}
+
+			while (enumerator.MoveNext())
 			{
+				object item = enumerator.Current;
 				target.Add(this.CoerceType(elementType, item));
+			}
+
+			IDisposable disposable = enumerator as IDisposable;
+			if (disposable != null) {
+				disposable.Dispose ();
 			}
 
 			return target.ToArray(elementType);
@@ -651,5 +677,43 @@ namespace JsonFx.Json
 		}
 
 		#endregion Type Methods
+
+		/// <summary>
+		/// Gets the IEnumerator interface of the object.
+		/// </summary>
+		/// <returns>The object's IEnumerator, or null if the enumerable does not implement IEnumerable.</returns>
+		/// <param name="enumerable">Enumerable. It must be disposed by the caller.</param>
+		internal static IEnumerator GetEnumerator(object enumerable)
+		{
+			var interfaces = enumerable.GetType ().GetInterfaces ();
+
+			Type enumerableInterface = null;
+			for (int i = 0; i < interfaces.Length; i++) {
+				if (!interfaces [i].IsGenericType && interfaces [i] == typeof(IEnumerable)) {
+					enumerableInterface = interfaces [i];
+					break;
+				}
+			}
+
+			if (enumerableInterface == null) {
+				return null;
+			}
+
+			var method = enumerableInterface.GetMethod ("GetEnumerator");
+
+			if (method == null) {
+				return null;
+			}
+
+			IEnumerator enumerator = null;
+
+			try {
+				enumerator = (IEnumerator)method.Invoke (enumerable, null);
+				return enumerator;
+			} catch (Exception e) {
+				// TODO: Define what to do in the case of an exception here.
+				return null;
+			}
+		}
 	}
 }
